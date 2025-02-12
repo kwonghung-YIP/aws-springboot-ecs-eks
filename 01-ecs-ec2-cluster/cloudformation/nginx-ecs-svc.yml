@@ -1,0 +1,212 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Nginx ECS Task Definition and Service
+
+Parameters:
+  ImageTag:
+    Type: String
+    Default: nginx:1.27.4
+
+  EFSSharedFileSystemId:
+    Type: String
+
+  SiteContentAccessPointId:
+    Type: String
+
+  ECSClusterArn:
+    Type: String
+
+  EFSClientSecurityGroupId:
+    Type: String
+
+  ALBForwardSecurityGroupId:
+    Type: String
+    Default: ""
+
+  TargetGroupArn:
+    Type: String
+    Default: ""
+
+Mappings:
+  RegionConfigMap:
+    eu-north-1:
+      AZ: [ eu-north-1a, eu-north-1b,eu-north-1c ]
+      SubnetId:
+        - subnet-01b85b47ea697c1e4
+        - subnet-026401f613174203a
+        - subnet-081aac5a690b7a1a8
+
+Resources:
+  
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Condition:
+              ArnLike:
+                "aws:SourceArn": !Sub "arn:aws:ecs:${AWS::Region}:${AWS::AccountId}:*"
+              StringEquals:
+                "aws:SourceAccount": !Sub "${AWS::AccountId}"
+
+  NginxTaskDef:
+    #
+    # CloudFormation Reference: AWS::ECS::TaskDefinition
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html
+    #
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: nginx
+      ContainerDefinitions:
+        - Name: nginx
+          #
+          # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-containerdefinition.html#cfn-ecs-taskdefinition-containerdefinition-essential
+          Image: !Ref ImageTag 
+          Cpu: 256
+          Memory: 256
+          PortMappings:
+            - ContainerPort: 80
+              HostPort: 80
+              Protocol: tcp
+          Essential: true
+          #
+          # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-logconfiguration.html
+          LogConfiguration:
+            #
+            # For AWS Fargate: awslogs|splunk|awsfirelens
+            # For EC2: awslogs|fluentd|gelf|json-file|journald|syslog|splunk|awsfirelens
+            #
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: "true"
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: ecs-nginx
+              #awslogs-stream-prefix:
+              mode: non-blocking # non-blocking|blocking
+          #MountPoints:
+          #  - SourceVolume: nginx-site-content
+          #    ContainerPath: /usr/share/nginx/html2
+      Volumes:
+        - Name: nginx-site-content
+          #ConfiguredAtLaunch: true
+          EFSVolumeConfiguration:
+            FilesystemId: !Ref EFSSharedFileSystemId
+            AuthorizationConfig:
+              AccessPointId: !Ref SiteContentAccessPointId
+              IAM: ENABLED # ENABLED|DISABLED
+            RootDirectory: / # If AccessPointId has specified, RootDirectory must be omitted or /
+            TransitEncryption: ENABLED
+      #
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-networkmode
+      #
+      NetworkMode: awsvpc # bridge|host|awsvpc|none
+      #
+      # The ARN of a IAM Role that grants the Amazon ECS container agent permission to make AWS API calls on your behalf
+      # (This role allows Amazon ECS to use other AWS services on your behalf.)
+      # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security-ecs-iam-role-overview.html
+      # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task_execution_IAM_role.html
+      #
+      ExecutionRoleArn: !Ref TaskExecutionRole
+      #
+      # The ARN of a IAM Role that grants containers in the task permission to call AWS APIs on your behalf
+      # (This role allows your application code (on the container) to use other AWS services.)
+      # https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-iam-roles.html
+      #
+      TaskRoleArn: !Ref TaskRole
+      #Cpu:
+      #Memory:
+      #IpcMode:
+      #PidMode:
+
+  # NginxAwsVpcSecurityGroup:
+  #   Type: AWS::EC2::SecurityGroup
+  #   Properties:
+  #     GroupDescription: Access to the EC2 hosts that run containers
+  #     SecurityGroupIngress:
+  #       - SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId #CidrIp: 0.0.0.0/0
+  #         IpProtocol: tcp
+  #         FromPort: 80
+  #         ToPort: 80
+  #     VpcId: !Ref VpcId
+
+  # ECSInfrastructureRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - sts:AssumeRole
+  #           Principal:
+  #             Service:
+  #               - ecs.amazonaws.com
+  #     ManagedPolicyArns:
+  #       # See reference: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/infrastructure_IAM_role.html
+  #       - arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRolePolicyForVolumes
+
+  NginxService:
+    #
+    # CloudFormation Reference: AWS::ECS::Service
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-service.html
+    #
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: nginx
+      Cluster: !Ref ECSClusterArn
+      TaskDefinition: !Ref NginxTaskDef
+      LaunchType: EC2 # EC2|FARGATE|EXTERNAL
+
+      SchedulingStrategy: REPLICA # DAEMON|REPLICA
+      DesiredCount: 3
+      
+      DeploymentController:
+        Type: ECS # ECS|CODE_DEPLOY_EXTERNAL
+
+      #
+      # This parameter is required for task definitions that use awsvpc network mode
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-service.html#cfn-ecs-service-networkconfiguration
+      #
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          # Could not enable PublicIp for this example(launch mode)
+          AssignPublicIp: DISABLED # DISABLED|ENABLED 
+          SecurityGroups:
+            - !Ref EFSClientSecurityGroupId
+            #- !Ref ALBForwardSecurityGroupId
+          Subnets:
+            - !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+            - !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+            - !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+
+      #LoadBalancers:
+      #  - ContainerName: nginx
+      #    ContainerPort: 80
+      #    TargetGroupArn: !Ref TargetGroup
+
+      # VolumeConfigurations:
+      #   - Name: efs-site-content
+      #     ManagedEBSVolume:
+      #       Encrypted: false
+      #       #KmsKeyId: 
+      #       FilesystemType: xfs # for linux ext3|ext4|xfs, for windows: ntfs
+      #       VolumeType: gp3 # gp2|gp3, io1|io2, st1, sc1, standard
+      #       SizeInGiB: 2
+      #       RoleArn: !GetAtt ECSInfrastructureRole.Arn

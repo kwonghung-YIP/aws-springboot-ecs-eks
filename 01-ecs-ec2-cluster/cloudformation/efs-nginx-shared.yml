@@ -1,0 +1,155 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Create EFS shared drive for nginx site content
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: >
+      Use my default VpcId if this parameter is not provided
+    Default: vpc-0fe6b72cebb18def1
+
+  EFSKmsKeyArn:
+    Type: String
+    Description: >
+      Use default AWS managed aws/elasticfilesystem key if this parameter is not provded
+    Default: arn:aws:kms:eu-north-1:796973491384:key/088f23f3-ac5a-4be6-aaad-296486b3d9dd
+
+Mappings:
+  RegionConfigMap:
+    eu-north-1:
+      AZ: [ eu-north-1a, eu-north-1b, eu-north-1c ]
+      SubnetId:
+        - subnet-01b85b47ea697c1e4
+        - subnet-026401f613174203a
+        - subnet-081aac5a690b7a1a8
+
+Resources:
+
+  EFSClientSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow EFS Client connect to EFS Server
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+      VpcId: !Ref VpcId 
+
+  EFSDriveSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the EC2 hosts that run containers
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt EFSClientSecurityGroup.GroupId
+          IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+      VpcId: !Ref VpcId            
+
+  EFSNginxSharedFiles:
+    #
+    # CloudFormation Reference: AWS::EFS::FileSystem
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-efs-filesystem.html
+    #
+    Type: AWS::EFS::FileSystem
+    Properties:
+      PerformanceMode: generalPurpose # generalPurpose|maxIO
+      ThroughputMode: elastic # bursting|provisioned|elastic
+      # ProvisionedThroughputInMibps:
+      BackupPolicy:
+        Status: DISABLED # ENABLED|DISABLED
+      LifecyclePolicies:
+        - TransitionToIA: AFTER_7_DAYS
+        - TransitionToArchive: AFTER_14_DAYS
+        - TransitionToPrimaryStorageClass: AFTER_1_ACCESS
+      FileSystemPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - elasticfilesystem:ClientMount #ReadOnly
+              - elasticfilesystem:ClientWrite
+              #- elasticfilesystem:ClientRootAccess
+            Principal:
+              AWS:
+                - "*" #!GetAtt EC2NodeRole.Arn
+            Condition:
+              Bool:
+                elasticfilesystem:AccessedViaMountTarget: true
+      FileSystemTags:
+        - Key: Name
+          Value: nginx-site-content
+      Encrypted: true
+      KmsKeyId: !Ref EFSKmsKeyArn
+
+  EFSMountTargetSubnet1a:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSNginxSharedFiles
+      SubnetId: !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+      SecurityGroups: 
+        - !Ref EFSDriveSecurityGroup
+
+  EFSMountTargetSubnet1b:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSNginxSharedFiles
+      SubnetId: !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+      SecurityGroups: 
+        - !Ref EFSDriveSecurityGroup
+
+  EFSMountTargetSubnet1c:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref EFSNginxSharedFiles
+      SubnetId: !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+      SecurityGroups: 
+        - !Ref EFSDriveSecurityGroup
+
+  EFSNginxSiteContentAP:
+    #
+    # CloudFormation Reference: AWS::EFS::AccessPoint
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-efs-accesspoint.html
+    #
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSNginxSharedFiles
+      PosixUser:
+        Uid: 1000 #ec2-user user in AL2023
+        Gid: 1000 #ec2-user group in AL2023
+      RootDirectory:
+        Path: /site-content
+        CreationInfo:
+          OwnerGid: 1000
+          OwnerUid: 1000
+          Permissions: "0755"
+
+  EFSNginxSiteConfigAP:
+    Type: AWS::EFS::AccessPoint
+    Properties:
+      FileSystemId: !Ref EFSNginxSharedFiles
+      PosixUser:
+        Uid: 1000 #ec2-user user in AL2023
+        Gid: 1000 #ec2-user group in AL2023
+      RootDirectory:
+        Path: /site-config
+        CreationInfo:
+          OwnerGid: 1000
+          OwnerUid: 1000
+          Permissions: "0755"
+
+Outputs:
+  FileSystemId:
+    Value: !GetAtt EFSNginxSharedFiles.FileSystemId
+
+  SiteContentAPId:
+    Value: !GetAtt EFSNginxSiteContentAP.AccessPointId
+
+  SiteConfigAPId:
+    Value: !GetAtt EFSNginxSiteConfigAP.AccessPointId
+
+  EFSClientSGId:
+    Value: !GetAtt EFSDriveSecurityGroup.GroupId
+

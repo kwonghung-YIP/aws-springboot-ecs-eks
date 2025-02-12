@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Application Load Balancer for the nginx service
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Use my default VpcId if this parameter is not provided"
+    Default: "vpc-0fe6b72cebb18def1"
+
+Mappings:
+  RegionConfigMap:
+    eu-north-1:
+      AZ: [ eu-north-1a, eu-north-1b,eu-north-1c ]
+      SubnetId:
+        - subnet-01b85b47ea697c1e4
+        - subnet-026401f613174203a
+        - subnet-081aac5a690b7a1a8
+
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ALB-security-group
+      GroupDescription: ALB HTTP/HTTPS services
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+      VpcId: !Ref VpcId
+
+  ALBForwardSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the EC2 hosts that run containers
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId 
+          # CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+        - SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId 
+          #CidrIp: 0.0.0.0/0
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+      VpcId: !Ref VpcId
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: nginx-ecs-svc-alb
+      Type: application
+      SecurityGroups:
+        - !GetAtt ALBSecurityGroup.GroupId
+      SubnetMappings:
+        - SubnetId: !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+        - SubnetId: !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+        - SubnetId: !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+
+  TargetGroup:
+    DependsOn:
+      - ApplicationLoadBalancer
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: nginx-ecs-svc-tg
+      Port: 80
+      Protocol: HTTP
+      # because the ECS task definition use awsvpc as the NetworkMode, so TargetType can assign to "ip"
+      TargetType: ip # instance|ip|lambda|alb 
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      VpcId: !Ref VpcId
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      Port: 80
+      Protocol: HTTP
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  ALBForwardSecurityGroupId:
+    Value: !GetAtt ALBForwardSecurityGroup.GroupId
+  
+  TargetGroupArn:
+    Value: !Ref TargetGroup
+
+  ALBDNSName:
+    Description: Application LoadBalancer Public DNS
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+
+  ALBArn:
+    Description: Application LoadBalancer ARN
+    Value: !GetAtt ApplicationLoadBalancer.LoadBalancerArn

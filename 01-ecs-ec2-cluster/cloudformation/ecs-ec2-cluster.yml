@@ -1,0 +1,210 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Create a ECS cluster running on EC2 instances
+
+Parameters:
+  InstanceType:
+    Description: EC2 Instance Type
+    Type: String
+    Default: t3.micro
+    AllowedValues:
+      - t3.micro
+
+  #
+  # Using System Manager Public Parameters as aliases to get the AMI ID
+  # https://aws.amazon.com/blogs/compute/using-system-manager-parameter-as-an-alias-for-ami-id/
+  #
+  ImageId:
+    Description: Amazon Linux 2023 ECS-Optimized-AMI
+    #Type: String
+    #Default: ami-0368b2c10d7184bc7
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "Use my default VpcId if this parameter is not provided"
+    Default: "vpc-0fe6b72cebb18def1"
+
+Mappings:
+  RegionConfigMap:
+    eu-north-1:
+      AZ: [ eu-north-1a, eu-north-1b,eu-north-1c ]
+      SubnetId:
+        - subnet-01b85b47ea697c1e4
+        - subnet-026401f613174203a
+        - subnet-081aac5a690b7a1a8
+
+Resources:
+
+  SshKey:
+    Type: "AWS::EC2::KeyPair"
+    Properties:
+      KeyName: ec2-sshkey
+      KeyFormat: pem # pem|ppk 
+      KeyType: ed25519 # rsa|ed25519
+
+  EC2NodeRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action:
+              - sts:AssumeRole
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+      ManagedPolicyArns:
+        # See reference: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/security-iam-awsmanpol.html#security-iam-awsmanpol-AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        # This managed policy allows us to connect to the instance using SSM
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: cloudwatch
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup 
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:"
+
+  EC2NodeInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref EC2NodeRole
+
+  EC2NodeHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to the EC2 hosts that run containers
+      SecurityGroupIngress:
+        - #CidrIp: !Ref MyIpAddress #either one must be defined CidrIp, CidrIpv6, SourcePrefixListId, SourceSecurityGroupId
+          CidrIp: 0.0.0.0/0 # allow all IP source including codedeploy-agent-service
+          IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+      VpcId: !Ref VpcId
+
+  EC2NodeLaunchTemplate:
+    DependsOn:
+      - ECSCluster
+    Type: AWS::EC2::LaunchTemplate
+    Metadata:
+      AWS::CloudFormation::Init:
+        packages:
+          yum:
+            amazon-efs-utils: []
+        services:
+          systemd:
+            ecs:
+              enabled: "true"
+              ensureRunning: "true"
+    Properties:
+      LaunchTemplateName: ecs-cluster-ec2-node
+      LaunchTemplateData:
+        InstanceType: !Ref InstanceType
+        ImageId: !Ref ImageId
+        KeyName: !Ref SshKey
+        IamInstanceProfile:
+          Name: !Ref EC2NodeInstanceProfile
+        SecurityGroupIds:
+          - !GetAtt EC2NodeHostSecurityGroup.GroupId
+        UserData: !Base64
+          'Fn::Sub':
+            - |
+              #!/bin/bash -xe
+
+              cat <<'EOF' >> /etc/ecs/ecs.config
+              ECS_CLUSTER=${ECSCluster}
+              ECS_LOGLEVEL=debug
+              EOF
+
+              yum install -y aws-cfn-bootstrap
+
+              /opt/aws/bin/cfn-init -v \
+                --stack ${AWS::StackName} \
+                --region ${AWS::Region} \
+                --resource EC2NodeLaunchTemplate
+            - {}
+
+  EC2NodeAutoScalingGroup:
+    #
+    # CloudFormation Reference: AWS::AutoScaling::AutoScalingGroup
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-autoscaling-autoscalinggroup.html
+    #
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+      - EC2NodeRole
+    UpdatePolicy:
+      AutoScalingReplacingUpate:
+        WillReplace: "true"
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref EC2NodeLaunchTemplate 
+        Version: !GetAtt EC2NodeLaunchTemplate.LatestVersionNumber
+      MinSize: 1
+      MaxSize: 3
+      DesiredCapacity: 3
+      NewInstancesProtectedFromScaleIn: "false"
+      VPCZoneIdentifier:
+        - !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+        - !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+        - !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
+
+  ECSCluster:
+    #
+    # CloudFormation Reference: AWS::ECS::Cluster
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-cluster.html
+    #
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: ecs-ec2-cluster
+      ClusterSettings:
+        - Name: containerInsights # containerInsights
+          Value: enabled # enhanced|enabled|disabled
+  
+  ECSCapacityProvider:
+    DependsOn:
+      - EC2NodeAutoScalingGroup
+    #
+    # CloudFormation Reference: AWS::ECS::CapacityProvider
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-capacityprovider.html
+    #
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      Name: ec2-nodes-capacity-provider
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref EC2NodeAutoScalingGroup
+        ManagedScaling:
+          InstanceWarmupPeriod: 60
+          MinimumScalingStepSize: 1
+          MaximumScalingStepSize: 100
+          Status: ENABLED
+          TargetCapacity: 100
+        ManagedTerminationProtection: DISABLED # ENABLED|DISABLED
+
+  ECSCapacityProviderAssociation:
+    #
+    # CloudFormation Reference: AWS::ECS::ClusterCapacityProviderAssociations
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-clustercapacityproviderassociations.html
+    #
+    Type: AWS::ECS::ClusterCapacityProviderAssociations
+    Properties:
+      Cluster: !Ref ECSCluster
+      CapacityProviders:
+        - !Ref ECSCapacityProvider
+      DefaultCapacityProviderStrategy:
+        - Base: 0
+          CapacityProvider: !Ref ECSCapacityProvider
+          Weight: 1
+
+Outputs:
+  SshKeyPairId:
+    Value: !GetAtt SshKey.KeyPairId
+
+  ClusterArn:
+    Value: !Ref ECSCluster

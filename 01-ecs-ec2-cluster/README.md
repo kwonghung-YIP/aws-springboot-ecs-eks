@@ -30,3 +30,4 @@ sudo cfn-init -v \
 - [Associate an Application Load Balancer with an Amzaon ECS service](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-service.html#aws-resource-ecs-service--examples--Associate_an_Application_Load_Balancer_with_an_service)
 - [AWS ECS - Allocate a network interface for an Amazon ECS task](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-networking-awsvpc.html)
 - [ECS Workshop](https://ecsworkshop.com/ecs_networking/awsvpc/)
+- [How do I pass values between nested stacks within the same parent stack in AWS CloudFormation?](https://repost.aws/knowledge-center/cloudformation-nested-stacks-values)

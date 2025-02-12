@@ -21,11 +21,6 @@ Parameters:
     Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
     Default: /aws/service/ecs/optimized-ami/amazon-linux-2023/recommended/image_id
 
-  SshKeyName:
-    Description: Name of the ssh keypair
-    Type: String
-    Default: "ECSEC2NodeSshKey"
-
   VpcId:
     Type: AWS::EC2::VPC::Id
     Description: "Use my default VpcId if this parameter is not provided"
@@ -41,11 +36,10 @@ Mappings:
         - subnet-081aac5a690b7a1a8
 
 Resources:
-
   SshKey:
     Type: "AWS::EC2::KeyPair"
     Properties:
-      KeyName: !Ref SshKeyName
+      KeyName: ec2-sshkey
       KeyFormat: pem # pem|ppk 
       KeyType: ed25519 # rsa|ed25519
 
@@ -65,6 +59,16 @@ Resources:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
         # This managed policy allows us to connect to the instance using SSM
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: cloudwatch
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup 
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:"
 
   EC2NodeInstanceProfile:
     Type: AWS::IAM::InstanceProfile
@@ -85,9 +89,14 @@ Resources:
       VpcId: !Ref VpcId
 
   EC2NodeLaunchTemplate:
+    DependsOn:
+      - ECSCluster
     Type: AWS::EC2::LaunchTemplate
     Metadata:
       AWS::CloudFormation::Init:
+        packages:
+          yum:
+            amazon-efs-utils: []
         services:
           systemd:
             ecs:
@@ -129,7 +138,6 @@ Resources:
     Type: AWS::AutoScaling::AutoScalingGroup
     DependsOn:
       - EC2NodeRole
-      - ECSCluster
     UpdatePolicy:
       AutoScalingReplacingUpate:
         WillReplace: "true"
@@ -216,7 +224,100 @@ Resources:
         - SubnetId: !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
         - SubnetId: !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
 
+  # EFSKey:
+  #   Type: AWS::KMS::Key
+  #   Properties:
+  #     KeyPolicy:
+  #       Version: 2012-10-17
+  #       Id: key-default-1
+  #       Statement:
+  #         # https://repost.aws/knowledge-center/update-key-policy-future
+  #         - Sid: Enable IAM User Permissions
+  #           Effect: Allow
+  #           Action: kms:*
+  #           Principal:
+  #             AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+  #         - Sid: Allow access for Key Administrators
+  #           Effect: Allow
+  #           Action:
+  #             - kms:Create*
+  #             - kms:Describe*
+  #             - kms:Enable*
+  #             - kms:List*
+  #             - kms:Put*
+  #             - kms:Update*
+  #             - kms:Revoke*
+  #             - kms:Disable*
+  #             - kms:Get*
+  #             - kms:Delete*
+  #             - kms:TagResource
+  #             - kms:UntagResource
+  #             - kms:ScheduleKeyDeletion
+  #             - kms:CancelKeyDeletion
+  #             - kms:RotateKeyOnDemand
+  #           Principal:
+  #             AWS: 
+  #               - !Sub "arn:aws:iam::${AWS::AccountId}:role/springboot-ec2-cloudformation-execution"
+  #           Resource: 
+  #             - '*'
+  #         - Sid: Allow use of the key
+  #           Effect: Allow
+  #           Action:
+  #             - kms:Encrypt
+  #             - kms:Decrypt
+  #             - kms:ReEncrypt*
+  #             - kms:GenerateDataKey*
+  #             - kms:DescribeKey
+  #           Principal:
+  #             AWS: "*"
+  #           Resource:
+  #             - "*"
+  #         - Sid: Allow attachment of persistent resource
+  #           Effect: Allow
+  #           Action:
+  #             - kms:CreateGrant
+  #             - kms:ListGrants
+  #             - kms:RevokeGrant
+  #           Principal:
+  #             AWS: "*"
+  #           Resource:
+  #             - "*"
+  #           Condition:
+  #             Bool:
+  #               "kms:GrantIsForAWSResource": true
+            
+
+  # EFSNginxSiteContent:
+  #   #
+  #   # CloudFormation Reference: AWS::EFS::FileSystem
+  #   # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-efs-filesystem.html
+  #   #
+  #   Type: AWS::EFS::FileSystem
+  #   Properties:
+  #     PerformanceMode: generalPurpose # generalPurpose|maxIO
+  #     ThroughputMode: bursting # bursting|provisioned|elastic
+  #     BackupPolicy:
+  #       Status: DISABLED # ENABLED|DISABLED
+  #     FileSystemPolicy:
+  #       Version: "2012-10-17"
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - elasticfilesystem:ClientMount #ReadOnly
+  #             #- elasticfilesystem:ClientWrite
+  #             #- elasticfilesystem:ClientRootAccess
+  #           Principal:
+  #             AWS:
+  #               - "*" #!GetAtt EC2NodeRole.Arn
+  #     FileSystemTags:
+  #       - Key: Name
+  #         Name: efs-site-content
+  #     Encrypted: true
+  #     KmsKeyId: !GetAtt EFSKey.Arn
+
   NginxTaskDef:
+    #DependsOn:
+    #  - EFSNginxSiteContent
     #
     # CloudFormation Reference: AWS::ECS::TaskDefinition
     # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html
@@ -228,14 +329,39 @@ Resources:
         - Name: nginx
           #
           # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-containerdefinition.html#cfn-ecs-taskdefinition-containerdefinition-essential
-          Image: "nginx:1.27.4"
+          Image: nginx:1.27.4
           Cpu: 256
           Memory: 256
           PortMappings:
             - ContainerPort: 80
               HostPort: 80
               Protocol: tcp
-          Essential: "true"
+          Essential: true
+          #
+          # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-logconfiguration.html
+          LogConfiguration:
+            #
+            # For AWS Fargate: awslogs|splunk|awsfirelens
+            # For EC2: awslogs|fluentd|gelf|json-file|journald|syslog|splunk|awsfirelens
+            #
+            LogDriver: awslogs
+            Options:
+              awslogs-create-group: "true"
+              awslogs-region: !Sub ${AWS::Region}
+              awslogs-group: ecs-nginx
+              #awslogs-stream-prefix:
+              mode: non-blocking # non-blocking|blocking
+          MountPoints:
+            - SourceVolume: nginx-site-content
+              ContainerPath: /usr/share/nginx/html2
+      Volumes:
+        - Name: nginx-site-content
+          #ConfiguredAtLaunch: true
+          EFSVolumeConfiguration:
+            FilesystemId: fs-08c0d47aff9f3f9ec
+            RootDirectory: /
+            #TransitEncryption: ENABLED
+
       #
       # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-ecs-taskdefinition.html#cfn-ecs-taskdefinition-networkmode
       #
@@ -252,11 +378,26 @@ Resources:
     Properties:
       GroupDescription: Access to the EC2 hosts that run containers
       SecurityGroupIngress:
-        - CidrIp: 0.0.0.0/0 # allow all IP source including codedeploy-agent-service
+        - SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId #CidrIp: 0.0.0.0/0
           IpProtocol: tcp
           FromPort: 80
           ToPort: 80
       VpcId: !Ref VpcId
+
+  # ECSInfrastructureRole:
+  #   Type: AWS::IAM::Role
+  #   Properties:
+  #     AssumeRolePolicyDocument:
+  #       Statement:
+  #         - Effect: Allow
+  #           Action:
+  #             - sts:AssumeRole
+  #           Principal:
+  #             Service:
+  #               - ecs.amazonaws.com
+  #     ManagedPolicyArns:
+  #       # See reference: https://docs.aws.amazon.com/AmazonECS/latest/developerguide/infrastructure_IAM_role.html
+  #       - arn:aws:iam::aws:policy/service-role/AmazonECSInfrastructureRolePolicyForVolumes
 
   NginxService:
     #
@@ -296,6 +437,16 @@ Resources:
           ContainerPort: 80
           TargetGroupArn: !Ref TargetGroup
 
+      # VolumeConfigurations:
+      #   - Name: efs-site-content
+      #     ManagedEBSVolume:
+      #       Encrypted: false
+      #       #KmsKeyId: 
+      #       FilesystemType: xfs # for linux ext3|ext4|xfs, for windows: ntfs
+      #       VolumeType: gp3 # gp2|gp3, io1|io2, st1, sc1, standard
+      #       SizeInGiB: 2
+      #       RoleArn: !GetAtt ECSInfrastructureRole.Arn
+
   TargetGroup:
     DependsOn:
       - ApplicationLoadBalancer
@@ -331,3 +482,5 @@ Outputs:
   ALBArn:
     Description: Application LoadBalancer ARN
     Value: !GetAtt ApplicationLoadBalancer.LoadBalancerArn
+
+
