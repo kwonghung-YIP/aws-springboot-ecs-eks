@@ -42,8 +42,8 @@ Resources:
     Properties:
       GroupDescription: Access to the EC2 hosts that run containers
       SecurityGroupIngress:
-        - CidrIp: 0.0.0.0/0
-          # SourceSecurityGroupId: !GetAtt EFSClientSecurityGroup.GroupId
+        - # CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !GetAtt EFSClientSecurityGroup.GroupId
           IpProtocol: tcp
           FromPort: 2049
           ToPort: 2049
@@ -72,7 +72,7 @@ Resources:
             Action:
               - elasticfilesystem:ClientMount #ReadOnly
               - elasticfilesystem:ClientWrite
-              #- elasticfilesystem:ClientRootAccess
+              - elasticfilesystem:ClientRootAccess
             Principal:
               AWS:
                 - "*" #!GetAtt EC2NodeRole.Arn
@@ -118,13 +118,13 @@ Resources:
     Properties:
       FileSystemId: !Ref EFSNginxSharedFiles
       PosixUser:
-        Uid: 1000 #ec2-user user in AL2023
-        Gid: 1000 #ec2-user group in AL2023
+        Uid: 0 #ec2-user:ec2-user (UID:GID) in AL2023
+        Gid: 0 
       RootDirectory:
         Path: /site-content
         CreationInfo:
-          OwnerGid: 1000
-          OwnerUid: 1000
+          OwnerGid: 0
+          OwnerUid: 0
           Permissions: "0755"
 
   EFSNginxSiteConfigAP:
@@ -132,13 +132,13 @@ Resources:
     Properties:
       FileSystemId: !Ref EFSNginxSharedFiles
       PosixUser:
-        Uid: 1000 #ec2-user user in AL2023
-        Gid: 1000 #ec2-user group in AL2023
+        Uid: 101 #ec2-user user in AL2023
+        Gid: 101 #ec2-user group in AL2023
       RootDirectory:
         Path: /site-config
         CreationInfo:
-          OwnerGid: 1000
-          OwnerUid: 1000
+          OwnerGid: 101
+          OwnerUid: 101
           Permissions: "0755"
 
 Outputs:
@@ -152,5 +152,5 @@ Outputs:
     Value: !GetAtt EFSNginxSiteConfigAP.AccessPointId
 
   EFSClientSGId:
-    Value: !GetAtt EFSDriveSecurityGroup.GroupId
+    Value: !GetAtt EFSClientSecurityGroup.GroupId
 

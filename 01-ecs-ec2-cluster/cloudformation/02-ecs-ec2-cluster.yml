@@ -120,7 +120,7 @@ Resources:
 
               cat <<'EOF' >> /etc/ecs/ecs.config
               ECS_CLUSTER=${ECSCluster}
-              ECS_LOGLEVEL=debug
+              ECS_LOGLEVEL=info
               EOF
 
               yum install -y aws-cfn-bootstrap

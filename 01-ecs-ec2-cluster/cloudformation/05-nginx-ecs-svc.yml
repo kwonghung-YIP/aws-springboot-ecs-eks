@@ -5,7 +5,7 @@ Description: >
 Parameters:
   ImageTag:
     Type: String
-    Default: nginx:1.27.4
+    Default: kwonghung/aws-ecs-nginx:1.27.4
 
   EFSSharedFileSystemId:
     Type: String
@@ -21,9 +21,11 @@ Parameters:
 
   ALBForwardSecurityGroupId:
     Type: String
+    Default: ""
 
   TargetGroupArn:
     Type: String
+    Default: ""
 
 Mappings:
   RegionConfigMap:
@@ -188,16 +190,16 @@ Resources:
           AssignPublicIp: DISABLED # DISABLED|ENABLED 
           SecurityGroups:
             - !Ref EFSClientSecurityGroupId
-            - !Ref ALBForwardSecurityGroupId
+            # - !Ref ALBForwardSecurityGroupId
           Subnets:
             - !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
             - !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
             - !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
 
-      LoadBalancers:
-        - ContainerName: nginx
-          ContainerPort: 80
-          TargetGroupArn: !Ref TargetGroupArn
+      # LoadBalancers:
+      #   - ContainerName: nginx
+      #     ContainerPort: 80
+      #     TargetGroupArn: !Ref TargetGroupArn
 
       # VolumeConfigurations:
       #   - Name: efs-site-content

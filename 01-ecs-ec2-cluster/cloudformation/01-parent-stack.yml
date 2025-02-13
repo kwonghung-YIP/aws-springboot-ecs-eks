@@ -7,6 +7,9 @@ Parameters:
     Description: Name of the CloudFormation Template Bucket generated in bootstrap stack
     Type: String
 
+Conditions:
+  EnableALB: !Equals ["", "1"]
+
 Resources:
   ECSClusterStack:
     Type: AWS::CloudFormation::Stack
@@ -14,6 +17,7 @@ Resources:
       TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/02-ecs-ec2-cluster.yml"
 
   ALBStack:
+    Condition: EnableALB
     Type: AWS::CloudFormation::Stack
     Properties:
       TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/03-nginx-alb.yml"
@@ -40,20 +44,22 @@ Resources:
         SiteContentAccessPointId: !GetAtt EFSStack.Outputs.SiteContentAPId
         ECSClusterArn: !GetAtt ECSClusterStack.Outputs.ClusterArn
         EFSClientSecurityGroupId: !GetAtt EFSStack.Outputs.EFSClientSGId
-        ALBForwardSecurityGroupId: !GetAtt ALBStack.Outputs.ALBForwardSecurityGroupId
-        TargetGroupArn: !GetAtt ALBStack.Outputs.TargetGroupArn
+        ALBForwardSecurityGroupId: !If [EnableALB, !GetAtt ALBStack.Outputs.ALBForwardSecurityGroupId, !Ref "AWS::NoValue"]
+        TargetGroupArn: !If [EnableALB, !GetAtt ALBStack.Outputs.TargetGroupArn, !Ref "AWS::NoValue"]
 
 Outputs:
   SshKeyPairId:
     Value: !GetAtt ECSClusterStack.Outputs.SshKeyPairId
 
   ALBPublicDomainName:
+    Condition: EnableALB
     Value: !GetAtt ALBStack.Outputs.ALBDNSName
 
   ECSClusterStackArn:
     Value: !Ref ECSClusterStack
 
   ALBStackArn:
+    Condition: EnableALB
     Value: !Ref ALBStack
 
   EFSStackArn:
