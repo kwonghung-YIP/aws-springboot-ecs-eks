@@ -1,7 +1,10 @@
 ## Features coverd in this example
-- Create a ECS Cluster which uses EC2 instances as working node, and deploy a Nginx service on it
+- Create a ECS Cluster which uses EC2 instances as working node
 - EC2 instances are spinned up with Auto Scaling Group and EC2 Launch Template
-
+- Create a Application Load Balancer to route the public traffic to nginx instances
+- Create a EFS storage to share the site content to all Nginx instances, Nginx mounts to an Access Point 
+- Deploy Nginx containers as ECS Task and Service
+- Nested CloudFormation Stack
 
 ##
 ```bash
@@ -15,7 +18,7 @@ sudo cfn-get-metadata \
 sudo cfn-init -v \
     --stack ecs-ec2-cluster \
     --resource EC2NodeLaunchTemplate \
-    --region eu-north-1    
+    --region eu-north-1
 ```
 
 ## Problem encountered

@@ -8,7 +8,7 @@ Parameters:
     Type: String
 
 Conditions:
-  EnableALB: !Equals ["", "1"]
+  EnableALB: !Equals ["1", "1"]
 
 Resources:
   ECSClusterStack:
