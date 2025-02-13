@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Create EFS shared drive for nginx site content
+  EFS shared drive for nginx site content
 
 Parameters:
   VpcId:
@@ -42,7 +42,8 @@ Resources:
     Properties:
       GroupDescription: Access to the EC2 hosts that run containers
       SecurityGroupIngress:
-        - SourceSecurityGroupId: !GetAtt EFSClientSecurityGroup.GroupId
+        - CidrIp: 0.0.0.0/0
+          # SourceSecurityGroupId: !GetAtt EFSClientSecurityGroup.GroupId
           IpProtocol: tcp
           FromPort: 2049
           ToPort: 2049

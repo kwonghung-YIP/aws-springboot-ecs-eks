@@ -21,11 +21,9 @@ Parameters:
 
   ALBForwardSecurityGroupId:
     Type: String
-    Default: ""
 
   TargetGroupArn:
     Type: String
-    Default: ""
 
 Mappings:
   RegionConfigMap:
@@ -101,9 +99,9 @@ Resources:
               awslogs-group: ecs-nginx
               #awslogs-stream-prefix:
               mode: non-blocking # non-blocking|blocking
-          #MountPoints:
-          #  - SourceVolume: nginx-site-content
-          #    ContainerPath: /usr/share/nginx/html2
+          MountPoints:
+            - SourceVolume: nginx-site-content
+              ContainerPath: /usr/share/nginx/html
       Volumes:
         - Name: nginx-site-content
           #ConfiguredAtLaunch: true
@@ -190,16 +188,16 @@ Resources:
           AssignPublicIp: DISABLED # DISABLED|ENABLED 
           SecurityGroups:
             - !Ref EFSClientSecurityGroupId
-            #- !Ref ALBForwardSecurityGroupId
+            - !Ref ALBForwardSecurityGroupId
           Subnets:
             - !Select [0, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
             - !Select [1, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
             - !Select [2, !FindInMap [RegionConfigMap,!Ref "AWS::Region", SubnetId]]
 
-      #LoadBalancers:
-      #  - ContainerName: nginx
-      #    ContainerPort: 80
-      #    TargetGroupArn: !Ref TargetGroup
+      LoadBalancers:
+        - ContainerName: nginx
+          ContainerPort: 80
+          TargetGroupArn: !Ref TargetGroupArn
 
       # VolumeConfigurations:
       #   - Name: efs-site-content

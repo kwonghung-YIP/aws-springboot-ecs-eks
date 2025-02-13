@@ -1,0 +1,20 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Bootstrap setup for deploying the main stack   
+  - S3 Bucket for stack templates file
+
+Resources:
+
+  TemplateBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: nested-template-bucket
+      VersioningConfiguration:
+        Status: Enabled
+
+Outputs:
+  BucketName:
+    Value: !Ref TemplateBucket
+    
+  BucketRegionalDomainName:
+    Value: !GetAtt TemplateBucket.RegionalDomainName

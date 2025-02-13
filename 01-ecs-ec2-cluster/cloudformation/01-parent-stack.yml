@@ -1,0 +1,72 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Parent Stack of the ECS Cluster example
+
+Parameters:
+  BucketName:
+    Description: Name of the CloudFormation Template Bucket generated in bootstrap stack
+    Type: String
+
+Resources:
+  ECSClusterStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/02-ecs-ec2-cluster.yml"
+
+  ALBStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/03-nginx-alb.yml"
+
+  EFSStack:
+    #
+    # CloudFormation Reference: AWS::CloudFormation::Stack
+    # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-cloudformation-stack.html
+    #
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/04-efs-nginx-shared.yml"
+      #Parameters:
+      #Tags:
+      #TimeoutInMinutes:
+      #NotificationARNs:
+
+  NginxECSSvcStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: !Sub "https://${BucketName}.s3.${AWS::Region}.amazonaws.com/05-nginx-ecs-svc.yml"
+      Parameters:
+        EFSSharedFileSystemId: !GetAtt EFSStack.Outputs.FileSystemId
+        SiteContentAccessPointId: !GetAtt EFSStack.Outputs.SiteContentAPId
+        ECSClusterArn: !GetAtt ECSClusterStack.Outputs.ClusterArn
+        EFSClientSecurityGroupId: !GetAtt EFSStack.Outputs.EFSClientSGId
+        ALBForwardSecurityGroupId: !GetAtt ALBStack.Outputs.ALBForwardSecurityGroupId
+        TargetGroupArn: !GetAtt ALBStack.Outputs.TargetGroupArn
+
+Outputs:
+  SshKeyPairId:
+    Value: !GetAtt ECSClusterStack.Outputs.SshKeyPairId
+
+  ALBPublicDomainName:
+    Value: !GetAtt ALBStack.Outputs.ALBDNSName
+
+  ECSClusterStackArn:
+    Value: !Ref ECSClusterStack
+
+  ALBStackArn:
+    Value: !Ref ALBStack
+
+  EFSStackArn:
+    Value: !Ref EFSStack
+
+  NginxServiceStackArn:
+    Value: !Ref NginxECSSvcStack
+
+  # EFSStackOutputs: 
+  #   Value: !GetAtt EFSStack.Outputs
+
+  # ASGStackId:
+  #   Value: !GetAtt ASGEC2NodeStack.StackId
+
+  # ASGStackOutputs: 
+  #   Value: !GetAtt ASGEC2NodeStack.Outputs

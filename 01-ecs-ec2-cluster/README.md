@@ -18,6 +18,28 @@ sudo cfn-init -v \
     --region eu-north-1    
 ```
 
+## Problem encountered
+
+If multiple security groups allow a EC2 outbound connection, but the destination resourse (e.g. EFS) only allows inbound connection for one of the security groups, so how to determine which group will be used?
+
+## Reply from Amazon Q
+When an EC2 instance has multiple security groups attached that allow outbound connections, and the destination resource (like EFS) only allows inbound connections from one specific security group, the determination of which security group will be used for the connection is based on the following principles:
+
+* Outbound Rules Evaluation: All security groups attached to the EC2 instance are evaluated for outbound rules. If any of the security groups allow the outbound connection, the traffic is permitted to leave the instance.
+* Inbound Rules at Destination: The destination resource (e.g., EFS) will only accept incoming connections that match its inbound rules. In this case, only connections from the specified security group will be allowed.
+* Security Group Matching: The connection will only be established if the security group ID of the outbound traffic matches the one specified in the destination's inbound rules.
+* First Match Principle: If multiple security groups attached to the EC2 instance allow the outbound connection and match the destination's inbound rules, the first matching security group (in terms of rule evaluation order) will be used for the connection.
+* Stateful Behavior: Once a connection is established, return traffic is automatically allowed, regardless of outbound rules on the destination or inbound rules on the source.
+
+It's important to note that while multiple security groups may allow outbound connections, only the one that matches the destination's inbound rules will effectively establish the connection. This behavior ensures that the principle of least privilege is maintained, allowing fine-grained control over network access.
+
+For best practices:
+
+* Minimize Security Groups: Attach only the necessary security groups to your EC2 instances to reduce complexity and potential conflicts.
+* Use Specific Rules: Create specific inbound and outbound rules in your security groups, avoiding overly permissive settings.
+* Regular Audits: Regularly review and audit your security group configurations to ensure they align with your security requirements.
+* Documentation: Maintain clear documentation of your security group configurations and their intended purposes.
+* Use Tags: Utilize AWS tags to help organize and manage your security groups effectively.
 
 ## Reference
 - [Amazon ECS clusters](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/clusters.html)

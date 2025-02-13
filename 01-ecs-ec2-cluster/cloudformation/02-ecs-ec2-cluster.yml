@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Create a ECS cluster running on EC2 instances
+  ECS cluster running on EC2 Auto Scaling Group
 
 Parameters:
   InstanceType:
