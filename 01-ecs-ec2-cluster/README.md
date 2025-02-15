@@ -56,3 +56,5 @@ For best practices:
 - [AWS ECS - Allocate a network interface for an Amazon ECS task](https://docs.aws.amazon.com/AmazonECS/latest/developerguide/task-networking-awsvpc.html)
 - [ECS Workshop](https://ecsworkshop.com/ecs_networking/awsvpc/)
 - [How do I pass values between nested stacks within the same parent stack in AWS CloudFormation?](https://repost.aws/knowledge-center/cloudformation-nested-stacks-values)
+- [How to set up nginx server blocks (Virtual Hosts)](https://www.digitalocean.com/community/tutorials/how-to-set-up-nginx-server-blocks-virtual-hosts-on-ubuntu-16-04)
+- [Using environment variables in nginx configuration](https://hub.docker.com/_/nginx)

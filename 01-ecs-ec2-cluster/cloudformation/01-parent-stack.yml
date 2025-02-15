@@ -45,6 +45,7 @@ Resources:
         ECSClusterArn: !GetAtt ECSClusterStack.Outputs.ClusterArn
         EFSClientSecurityGroupId: !GetAtt EFSStack.Outputs.EFSClientSGId
         ALBForwardSecurityGroupId: !If [EnableALB, !GetAtt ALBStack.Outputs.ALBForwardSecurityGroupId, !Ref "AWS::NoValue"]
+        ALBDomainName: !If [EnableALB, !GetAtt ALBStack.Outputs.ALBDNSName, !Ref "AWS::NoValue"]
         TargetGroupArn: !If [EnableALB, !GetAtt ALBStack.Outputs.TargetGroupArn, !Ref "AWS::NoValue"]
 
 Outputs:

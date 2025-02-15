@@ -55,11 +55,6 @@ then
     exit 1
 fi
 
-aws cloudformation describe-stacks \
-    --stack-name parent-stack \
-    --query 'Stacks[0].Outputs[?OutputKey==`SshKeyPairId`].OutputValue' \
-    --output text --no-cli-pager
-
 # To get the new keypair Id generated in the cloudformation template
 KEYPAIR_ID=`aws cloudformation describe-stacks \
     --stack-name ${STACK_NAME} \

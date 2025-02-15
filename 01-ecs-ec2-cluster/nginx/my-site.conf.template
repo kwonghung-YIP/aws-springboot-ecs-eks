@@ -1,0 +1,17 @@
+server {
+    listen 80;
+    listen [::]:80;
+
+    server_name ${ALB_DOMAIN_NAME};
+
+    root    /usr/share/my-site/html;
+    index   index.html index.htm;
+
+    add_header nginx-hostname $hostname;
+    add_header nginx-server-name $server_name;
+    add_header nginx-server-addr $server_addr;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+}

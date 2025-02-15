@@ -1,0 +1,1 @@
+Hello I'm a testing page other from nginx default welcome page!

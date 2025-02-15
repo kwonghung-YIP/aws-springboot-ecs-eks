@@ -23,6 +23,10 @@ Parameters:
     Type: String
     Default: ""
 
+  ALBDomainName:
+    Type: String
+    Default: ""
+
   TargetGroupArn:
     Type: String
     Default: ""
@@ -86,7 +90,13 @@ Resources:
             - ContainerPort: 80
               HostPort: 80
               Protocol: tcp
+            - ContainerPort: 443
+              HostPort: 443
+              Protocol: tcp
           Essential: true
+          Environment:
+            - Name: ALB_DOMAIN_NAME
+              Value: !Ref ALBDomainName
           #
           # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-properties-ecs-taskdefinition-logconfiguration.html
           LogConfiguration:
@@ -103,7 +113,7 @@ Resources:
               mode: non-blocking # non-blocking|blocking
           MountPoints:
             - SourceVolume: nginx-site-content
-              ContainerPath: /usr/share/nginx/html
+              ContainerPath: /usr/share/my-site/html
       Volumes:
         - Name: nginx-site-content
           #ConfiguredAtLaunch: true
